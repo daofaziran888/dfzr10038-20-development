@@ -11,6 +11,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from app.services.lineage_recompute import recompute_service
 from app.store import store
 
 # ---------------------------------------------------------------------------
@@ -620,6 +621,34 @@ def flow_schedule_to_batch_to_backfill(schedule_job_id: int) -> list[FlowEffect]
             ))
             break
 
+    return effects
+
+
+# ============================ 链路11: 调度编排→血缘下游重算 ============================
+
+
+@_register(
+    "schedule_job/激活计划 → lineage_recompute/派发重算与追赶任务",
+    desc="调度计划激活后按下游重算数据派发实际重算和追赶任务。",
+)
+def flow_schedule_to_recompute_dispatch(schedule_job_id: int) -> list[FlowEffect]:
+    effects: list[FlowEffect] = []
+
+    sj = store.find("schedule_job", schedule_job_id)
+    if sj is None or sj.get("status") != "执行中":
+        return effects
+
+    plan_no = str(sj.get("计划编号", ""))
+    target_ref = str(sj.get("关联对象", ""))
+
+    plan, message = recompute_service.activate_by_schedule(target_ref)
+    if plan is None:
+        return effects
+
+    effects.append(FlowEffect(
+        "派发重算与追赶任务", "lineage_recompute", int(plan["id"]),
+        f"调度 {plan_no} 激活后按下游重算数据派发：{message}",
+    ))
     return effects
 
 

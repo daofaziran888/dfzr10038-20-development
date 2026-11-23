@@ -81,5 +81,28 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 血缘下游重算（调度员入口）
+
+特征血缘在通用资源路由之外提供一组专用入口（`backend/app/routers/lineage.py`，
+领域逻辑在 `backend/app/services/lineage_recompute.py`）：
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/lineage/recompute/query` | 在已确认血缘边集合上查询下游重算数据：从选中的输入特征和确认版本出发，给出需要重算的边界；已废弃边不参与检索，环路提示实际闭合的关系并停止扩展 |
+| `POST /api/lineage/recompute/plans` | 提交下游重算计划；同一汇合节点只保留一份有效计划，并标明关联的不同数据版本 |
+| `GET /api/lineage/recompute/plans[/{id}]` | 查看计划与派发的重算/追赶任务 |
+| `POST /api/lineage/recompute/plans/{id}/activate` | 激活计划：放行重算任务，追赶任务保持可领 |
+| `POST /api/lineage/recompute/plans/{id}/execute` | 执行所有已放行的重算任务；未完成的追赶任务保持可领 |
+| `POST /api/lineage/recompute/tasks/{id}/claim`、`/complete` | 领取并完成追赶任务，分支版本追平并留快照 |
+| `GET /api/lineage/confluence/{feature}/read` | 下游按可用状态读取汇合特征：临时发布（注明来源）/ 等待齐版 / 已交付，前一次齐版交付始终可读 |
+| `GET /api/lineage/versions/{feature}` | 特征实际版本与全部快照（旧版可复查） |
+
+调度编排激活计划（`schedule_job/激活计划`，关联对象填重算计划编号或汇合特征）会经
+跨模块数据流自动派发对应的重算与追赶任务。汇合结果最终结果必须两支齐版，同一对齐
+只交付一个齐版结果；临时结果不会把未完成的分支误记为完成。
+
+验收：`make test`（`backend/tests/test_lineage_recompute.py`，端到端跑通
+左支新版/右支旧版的钻石形血缘重算全流程）。
+
 领域：数据工程
 子方向：数仓与数据湖
